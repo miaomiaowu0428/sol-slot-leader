@@ -17,6 +17,54 @@ pub mod types;
 pub use db::DbConfig;
 pub use types::ClientType;
 
+// ── AnyOracle —— 封装两种实现，供需要将 OnceLock 存储的场景使用 ────────────────
+
+/// 统一封装 `SlotLeaderCache`（有 DB）和 `NoopOracle`（无 DB）。
+///
+/// 用途：`OnceLock<TxDispacher<AnyOracle>>` — 需要平衡“类型固定”与“fallback”两个需求时。
+#[derive(Clone)]
+pub enum AnyOracle {
+    Db(SlotLeaderCache),
+    Noop(NoopOracle),
+}
+
+impl SlotOracle for AnyOracle {
+    fn leader_at(&self, slot: u64) -> Option<LeaderInfo> {
+        match self {
+            AnyOracle::Db(c) => c.leader_at(slot),
+            AnyOracle::Noop(n) => n.leader_at(slot),
+        }
+    }
+}
+
+impl AnyOracle {
+    /// 尝试连接 DB，失败时退化到 NoopOracle。
+    pub async fn from_env(db_url: &str, rpc_url: &str) -> Self {
+        match SlotLeaderCache::new(DbConfig::new(db_url), rpc_url).await {
+            Ok(cache) => {
+                log::info!("[AnyOracle] SlotLeaderCache 初始化成功");
+                AnyOracle::Db(cache)
+            }
+            Err(e) => {
+                log::warn!("[AnyOracle] DB 连接失败，退化到 NoopOracle: {}", e);
+                AnyOracle::Noop(NoopOracle)
+            }
+        }
+    }
+
+    /// 是否已连接到真实 DB。
+    pub fn is_db(&self) -> bool {
+        matches!(self, AnyOracle::Db(_))
+    }
+
+    /// 如果是 Db 分支，启动后台刷新任务。
+    pub fn spawn_refresh_task_if_db(&self) {
+        if let AnyOracle::Db(cache) = self {
+            cache.spawn_refresh_task();
+        }
+    }
+}
+
 use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -46,6 +94,11 @@ impl LeaderInfo {
             .map(|n| n.to_ascii_lowercase().contains("harmonic"))
             .unwrap_or(false)
     }
+
+    /// 是否为 Jito 节点。
+    pub fn is_jito(&self) -> bool {
+        matches!(&self.client_type, ClientType::JitoLabs)
+    }
 }
 
 // ── SlotOracle trait ──────────────────────────────────────────────────────────
@@ -63,6 +116,7 @@ pub trait SlotOracle: Send + Sync {
 /// 无数据库时的 fallback oracle，始终返回 None。
 ///
 /// 注入 `sol-tx-dispacher` 后，分发器会自动退化到默认发送策略。
+#[derive(Clone)]
 pub struct NoopOracle;
 
 impl SlotOracle for NoopOracle {
