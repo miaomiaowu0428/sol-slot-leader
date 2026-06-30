@@ -11,10 +11,7 @@ use std::sync::Arc;
 /// 3. DB fetch_range(current_slot, max_db_slot) → 写入 map
 /// 4. 淘汰 current_slot 之前的旧条目
 pub async fn do_refresh(inner: &Arc<CacheInner>) -> anyhow::Result<()> {
-    let rpc = RpcClient::new_with_commitment(
-        inner.rpc_url.clone(),
-        CommitmentConfig::processed(),
-    );
+    let rpc = RpcClient::new_with_commitment(inner.rpc_url.clone(), CommitmentConfig::processed());
 
     // 1. 当前 slot
     let current_slot = rpc
@@ -48,6 +45,7 @@ pub async fn do_refresh(inner: &Arc<CacheInner>) -> anyhow::Result<()> {
             LeaderInfo {
                 client_type: row.client_type,
                 name: row.name,
+                leader: row.leader.and_then(|s| s.parse().ok()),
             },
         );
     }

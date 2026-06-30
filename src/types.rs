@@ -41,14 +41,10 @@ impl From<&str> for ClientType {
         // 去首尾空白后做大小写不敏感匹配
         match s.trim() {
             t if t.eq_ignore_ascii_case("agave") => ClientType::Agave,
-            t if t.eq_ignore_ascii_case("agave_bam")
-                || t.eq_ignore_ascii_case("agavebam") =>
-            {
+            t if t.eq_ignore_ascii_case("agave_bam") || t.eq_ignore_ascii_case("agavebam") => {
                 ClientType::AgaveBam
             }
-            t if t.eq_ignore_ascii_case("firedancer")
-                || t.eq_ignore_ascii_case("fire_dancer") =>
-            {
+            t if t.eq_ignore_ascii_case("firedancer") || t.eq_ignore_ascii_case("fire_dancer") => {
                 ClientType::FireDancer
             }
             t if t.eq_ignore_ascii_case("frankendancer")

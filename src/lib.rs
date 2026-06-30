@@ -77,6 +77,8 @@ pub struct LeaderInfo {
     pub client_type: ClientType,
     /// 节点名称（如 "Harmonic-SG"），用于辅助判断 client_type 为 Other 时是否为 Harmonic 节点。
     pub name: Option<String>,
+    /// leader 的 vote account pubkey（base58 字符串）
+    pub leader: Option<solana_sdk::pubkey::Pubkey>,
 }
 
 impl LeaderInfo {
@@ -98,6 +100,11 @@ impl LeaderInfo {
     /// 是否为 Jito 节点。
     pub fn is_jito(&self) -> bool {
         matches!(&self.client_type, ClientType::JitoLabs)
+    }
+
+    /// leader 的 vote account pubkey
+    pub fn leader_pubkey(&self) -> Option<&solana_sdk::pubkey::Pubkey> {
+        self.leader.as_ref()
     }
 }
 
@@ -176,8 +183,7 @@ impl SlotLeaderCache {
     pub fn spawn_refresh_task(&self) {
         let cache = self.clone();
         tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(std::time::Duration::from_secs(10 * 60));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10 * 60));
             interval.tick().await; // 跳过第一次立即触发（new() 里已经加载过了）
             loop {
                 interval.tick().await;

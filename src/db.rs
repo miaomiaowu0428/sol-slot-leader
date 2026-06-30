@@ -1,9 +1,7 @@
 //! 数据库访问：查询 slot_leader 表
 
 use crate::types::ClientType;
-use sea_orm::{
-    ConnectionTrait, Database, DatabaseConnection, DbErr, Statement, Value,
-};
+use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbErr, Statement, Value};
 
 /// DB 连接配置。
 #[derive(Debug, Clone)]
@@ -34,7 +32,7 @@ pub async fn fetch_range(
     let rows = conn
         .query_all(Statement::from_sql_and_values(
             backend,
-            "SELECT slot, client_type, name \
+            "SELECT slot, client_type, name, leader \
              FROM slot_leader \
              WHERE slot >= ? AND slot <= ? \
              ORDER BY slot ASC",
@@ -51,10 +49,12 @@ pub async fn fetch_range(
             let slot: u64 = row.try_get_by_index::<i64>(0).ok()? as u64;
             let raw: Option<String> = row.try_get_by_index(1).ok();
             let name: Option<String> = row.try_get_by_index(2).ok();
+            let leader: Option<String> = row.try_get_by_index(3).ok();
             Some(SlotLeaderRow {
                 slot,
                 client_type: ClientType::from(raw),
                 name,
+                leader,
             })
         })
         .collect();
@@ -88,4 +88,5 @@ pub struct SlotLeaderRow {
     pub slot: u64,
     pub client_type: ClientType,
     pub name: Option<String>,
+    pub leader: Option<String>,
 }
