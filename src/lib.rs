@@ -79,6 +79,8 @@ pub struct LeaderInfo {
     pub name: Option<String>,
     /// leader 的 vote account pubkey（base58 字符串）
     pub leader: Option<solana_sdk::pubkey::Pubkey>,
+    /// slot_leader.client_type_id，用于 FIFO leader 判定（None=未知）
+    pub client_type_id: Option<u16>,
 }
 
 impl LeaderInfo {

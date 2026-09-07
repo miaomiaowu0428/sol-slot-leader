@@ -32,7 +32,7 @@ pub async fn fetch_range(
     let rows = conn
         .query_all(Statement::from_sql_and_values(
             backend,
-            "SELECT slot, client_type, name, leader \
+            "SELECT slot, client_type, name, leader, client_type_id \
              FROM slot_leader \
              WHERE slot >= ? AND slot <= ? \
              ORDER BY slot ASC",
@@ -50,11 +50,13 @@ pub async fn fetch_range(
             let raw: Option<String> = row.try_get_by_index(1).ok();
             let name: Option<String> = row.try_get_by_index(2).ok();
             let leader: Option<String> = row.try_get_by_index(3).ok();
+            let client_type_id: Option<u16> = row.try_get_by_index(4).ok();
             Some(SlotLeaderRow {
                 slot,
                 client_type: ClientType::from(raw),
                 name,
                 leader,
+                client_type_id,
             })
         })
         .collect();
@@ -89,4 +91,6 @@ pub struct SlotLeaderRow {
     pub client_type: ClientType,
     pub name: Option<String>,
     pub leader: Option<String>,
+    /// slot_leader.client_type_id（smallint unsigned），用于 FIFO leader 判定
+    pub client_type_id: Option<u16>,
 }

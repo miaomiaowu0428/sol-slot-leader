@@ -46,6 +46,7 @@ pub async fn do_refresh(inner: &Arc<CacheInner>) -> anyhow::Result<()> {
                 client_type: row.client_type,
                 name: row.name,
                 leader: row.leader.and_then(|s| s.parse().ok()),
+                client_type_id: row.client_type_id,
             },
         );
     }
