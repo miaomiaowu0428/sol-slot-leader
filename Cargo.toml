@@ -9,6 +9,8 @@ log = "0.4"
 anyhow = "1"
 dashmap = "6"
 sea-orm = { version = "1.1", features = ["runtime-tokio-rustls", "sqlx-mysql"] }
-solana-client = "3.1.11"
-solana-sdk = "3.0.0"
+solana-client = "4.2.2"
+solana-sdk = "4.0.1"
 solana-commitment-config = "3.1.1"
+
+[workspace]
