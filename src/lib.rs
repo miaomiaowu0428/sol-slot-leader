@@ -104,10 +104,33 @@ impl LeaderInfo {
         matches!(&self.client_type, ClientType::JitoLabs)
     }
 
+    /// 是否为 P2P.org 的 **Turbo** 节点（`slot_leader.name == "P2P.org Turbo"`）。
+    ///
+    /// 用于把该 leader 的 slot 路由到 P2P 自家的 Syncro Sender 通道。
+    /// 匹配规则见 [`is_p2p_turbo_name`]（大小写/空白/连接符容错）。
+    pub fn is_p2p_turbo(&self) -> bool {
+        self.name.as_deref().map(is_p2p_turbo_name).unwrap_or(false)
+    }
+
     /// leader 的 vote account pubkey
     pub fn leader_pubkey(&self) -> Option<&solana_sdk::pubkey::Pubkey> {
         self.leader.as_ref()
     }
+}
+
+// ── P2P.org Turbo 节点名匹配 ───────────────────────────────────────────────────
+
+/// P2P.org Turbo 节点在 `slot_leader.name` 里的标准写法。
+pub const P2P_TURBO_NAME: &str = "P2P.org Turbo";
+
+/// 判断 `slot_leader.name` 是否为 P2P.org Turbo 节点。
+///
+/// 容错：忽略首尾空白与大小写，并把 `-` / `_` 归一成空格、合并连续空格，
+/// 因此 `"P2P.org Turbo"` / `"p2p.org turbo"` / `"P2P.org-Turbo"` 都能命中。
+pub fn is_p2p_turbo_name(name: &str) -> bool {
+    let lowered = name.trim().to_ascii_lowercase().replace(['-', '_'], " ");
+    let normalized = lowered.split_whitespace().collect::<Vec<_>>().join(" ");
+    normalized == "p2p.org turbo"
 }
 
 // ── SlotOracle trait ──────────────────────────────────────────────────────────
@@ -220,5 +243,41 @@ impl SlotLeaderCache {
 impl SlotOracle for SlotLeaderCache {
     fn leader_at(&self, slot: u64) -> Option<LeaderInfo> {
         self.inner.map.get(&slot).map(|r| r.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info(name: Option<&str>) -> LeaderInfo {
+        LeaderInfo {
+            client_type: ClientType::Agave,
+            name: name.map(str::to_string),
+            leader: None,
+            client_type_id: None,
+        }
+    }
+
+    #[test]
+    fn p2p_turbo_name_matches_variants() {
+        assert!(is_p2p_turbo_name(P2P_TURBO_NAME));
+        assert!(is_p2p_turbo_name("P2P.org Turbo"));
+        assert!(is_p2p_turbo_name("  p2p.org turbo  "));
+        assert!(is_p2p_turbo_name("P2P.org-Turbo"));
+        assert!(is_p2p_turbo_name("P2P.org_Turbo"));
+        assert!(!is_p2p_turbo_name("P2P.org"));
+        assert!(!is_p2p_turbo_name("P2P.org Turbo 2"));
+        assert!(!is_p2p_turbo_name("Harmonic-SG"));
+        assert!(!is_p2p_turbo_name(""));
+    }
+
+    #[test]
+    fn leader_info_is_p2p_turbo() {
+        assert!(info(Some("P2P.org Turbo")).is_p2p_turbo());
+        assert!(!info(None).is_p2p_turbo());
+        assert!(!info(Some("Harmonic-SG")).is_p2p_turbo());
+        // 与 harmonic 判定互不影响
+        assert!(!info(Some("P2P.org Turbo")).is_harmonic());
     }
 }
