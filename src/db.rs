@@ -32,7 +32,7 @@ pub async fn fetch_range(
     let rows = conn
         .query_all(Statement::from_sql_and_values(
             backend,
-            "SELECT slot, client_type, name, leader, client_type_id \
+            "SELECT slot, client_type, name, leader, client_type_id, region \
              FROM slot_leader \
              WHERE slot >= ? AND slot <= ? \
              ORDER BY slot ASC",
@@ -51,12 +51,14 @@ pub async fn fetch_range(
             let name: Option<String> = row.try_get_by_index(2).ok();
             let leader: Option<String> = row.try_get_by_index(3).ok();
             let client_type_id: Option<u16> = row.try_get_by_index(4).ok();
+            let region: Option<String> = row.try_get_by_index(5).ok();
             Some(SlotLeaderRow {
                 slot,
                 client_type: ClientType::from(raw),
                 name,
                 leader,
                 client_type_id,
+                region,
             })
         })
         .collect();
@@ -93,4 +95,9 @@ pub struct SlotLeaderRow {
     pub leader: Option<String>,
     /// slot_leader.client_type_id（smallint unsigned），用于 FIFO leader 判定
     pub client_type_id: Option<u16>,
+    /// leader 节点所在地区（DB 原始文本，形如 `"Germany / Frankfurt am Main"`）。
+    ///
+    /// 不做任何解析：映射到发送侧的地区枚举是 dispatcher 的职责（见
+    /// `sol-tx-dispacher` 的 `geo_to_region`）。
+    pub region: Option<String>,
 }

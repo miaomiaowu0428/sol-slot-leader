@@ -42,7 +42,11 @@ impl AnyOracle {
     pub async fn from_env(db_url: &str, rpc_url: &str) -> Self {
         match SlotLeaderCache::new(DbConfig::new(db_url), rpc_url).await {
             Ok(cache) => {
-                log::info!("[AnyOracle] SlotLeaderCache 初始化成功");
+                log::info!(
+                    "[AnyOracle] SlotLeaderCache 初始化成功: 缓存区间={:?} 条目={}",
+                    cache.cached_range().await,
+                    cache.len()
+                );
                 AnyOracle::Db(cache)
             }
             Err(e) => {
@@ -61,6 +65,7 @@ impl AnyOracle {
     pub fn spawn_refresh_task_if_db(&self) {
         if let AnyOracle::Db(cache) = self {
             cache.spawn_refresh_task();
+            log::info!("[AnyOracle] 已启动 slot leader 后台刷新（每 10 分钟）");
         }
     }
 }
@@ -81,6 +86,14 @@ pub struct LeaderInfo {
     pub leader: Option<solana_sdk::pubkey::Pubkey>,
     /// slot_leader.client_type_id，用于 FIFO leader 判定（None=未知）
     pub client_type_id: Option<u16>,
+    /// leader 节点所在地区（DB 原始文本，形如 `"Germany / Frankfurt am Main"`）。
+    ///
+    /// 这是**节点机房**的地理位置（由 DB 侧按 IP 归属地解析），不是投票账户
+    /// 所有者的所在地。`None` 表示该 slot 没有地区数据。
+    ///
+    /// 原始文本的解析交给上层（dispatcher 的 `geo_to_region`），本 crate 不引入
+    /// 地区枚举，避免把"发送侧词汇"泄漏到数据层。
+    pub region: Option<String>,
 }
 
 impl LeaderInfo {
@@ -138,8 +151,16 @@ pub fn is_p2p_turbo_name(name: &str) -> bool {
 /// 供 `sol-tx-dispacher` 使用的 slot leader 查询接口。
 ///
 /// 实现者：[`SlotLeaderCache`]（有 DB）/ [`NoopOracle`]（无 DB fallback）。
+///
+/// # 契约
+///
+/// `leader_at` 必须是**纯内存读**：不得访问 DB / RPC / 文件系统，也不得阻塞。
+/// DB 数据由实现的后台刷新任务预先载入（见 [`SlotLeaderCache::spawn_refresh_task`]）。
+/// dispatcher 的发送热路径每次发送只调用一次。
 pub trait SlotOracle: Send + Sync {
-    /// 查询指定 slot 的 leader 信息。同步，内部走内存缓存，无 I/O。
+    /// 查询指定 slot 的 leader 信息。
+    ///
+    /// 同步、无 I/O：实现必须只读内存缓存。
     fn leader_at(&self, slot: u64) -> Option<LeaderInfo>;
 }
 
@@ -160,6 +181,9 @@ impl SlotOracle for NoopOracle {
 // ── SlotLeaderCache ───────────────────────────────────────────────────────────
 
 /// 带后台刷新的内存缓存，实现 [`SlotOracle`]。
+///
+/// `leader_at` 只读 `DashMap`；DB 只在 [`Self::new`] 的首次加载和后台
+/// [`Self::spawn_refresh_task`] 里访问，发送路径不会查库。
 ///
 /// # 使用方式
 ///
@@ -200,6 +224,23 @@ impl SlotLeaderCache {
         cache.refresh_once().await?;
 
         Ok(cache)
+    }
+
+    /// 测试用：直接用给定条目构造缓存，**不连接 DB / RPC**。
+    ///
+    /// 用于验证 `leader_at` 是纯内存读、不需要任何外部依赖。
+    #[cfg(test)]
+    pub(crate) fn from_entries(entries: impl IntoIterator<Item = (u64, LeaderInfo)>) -> Self {
+        let inner = Arc::new(CacheInner {
+            map: DashMap::new(),
+            last_range: RwLock::new(None),
+            db_config: DbConfig::new(""),
+            rpc_url: String::new(),
+        });
+        for (slot, info) in entries {
+            inner.map.insert(slot, info);
+        }
+        Self { inner }
     }
 
     /// 启动后台刷新任务（每 10 分钟）。
@@ -256,6 +297,7 @@ mod tests {
             name: name.map(str::to_string),
             leader: None,
             client_type_id: None,
+            region: None,
         }
     }
 
@@ -279,5 +321,14 @@ mod tests {
         assert!(!info(Some("Harmonic-SG")).is_p2p_turbo());
         // 与 harmonic 判定互不影响
         assert!(!info(Some("P2P.org Turbo")).is_harmonic());
+    }
+
+    /// `leader_at` 只读内存缓存：没有 DB / RPC 也能返回预置数据，未命中返回 None。
+    #[test]
+    fn leader_at_reads_only_in_memory_cache() {
+        let cache = SlotLeaderCache::from_entries([(10, info(Some("P2P.org Turbo")))]);
+        assert!(cache.leader_at(10).expect("缓存里应有 slot 10").is_p2p_turbo());
+        assert!(cache.leader_at(11).is_none());
+        assert_eq!(cache.len(), 1);
     }
 }
